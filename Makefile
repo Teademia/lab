@@ -13,6 +13,8 @@ apps:
 	@find user_apps -depth -mindepth 1 -type d -exec rm -rf {} \;
 	@rm user_apps/*.bin
 	@rm user_apps/*.d
+	@riscv64-unknown-elf-gcc -o user_apps/main clib/main.c -nostdlib -static
+	@rust-objdump -d user_apps/main > main.s
 
 img:
 	@dd if=/dev/zero of=$(IMG_NAME) bs=1M count=$(IMG_SIZE_MB)
@@ -24,3 +26,10 @@ clean:
 	@cd user && rm target -rf
 	@cd fat32_fs && rm target -rf
 	@rm user_apps/* -rf
+
+
+server:
+	@cd os && make server
+
+client:
+	@cd os && make client

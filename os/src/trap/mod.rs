@@ -53,7 +53,6 @@ pub fn enable_timer_interrupt() {
 #[no_mangle]
 /// handle an interrupt, exception, or system call from user space
 pub fn trap_handler() -> ! {
-    info!("Trap handler");
     set_kernel_trap_entry();
     let scause = scause::read();
     let stval = stval::read();
@@ -74,7 +73,7 @@ pub fn trap_handler() -> ! {
         | Trap::Exception(Exception::InstructionPageFault)
         | Trap::Exception(Exception::LoadFault)
         | Trap::Exception(Exception::LoadPageFault) => {
-            error!(
+            warn!(
                 "[kernel] {:?} in application, bad addr = {:#x}, bad instruction = {:#x}, kernel killed it.",
                 scause.cause(),
                 stval,
@@ -109,7 +108,6 @@ pub fn trap_handler() -> ! {
 /// set the reg a0 = trap_cx_ptr, reg a1 = phy addr of usr page table,
 /// finally, jump to new addr of __restore asm function
 pub fn trap_return() -> ! {
-    info!("Trap return");
     set_user_trap_entry();
     let trap_cx_ptr = TRAP_CONTEXT;
     let user_satp = current_user_token();

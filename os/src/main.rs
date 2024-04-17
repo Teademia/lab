@@ -55,7 +55,6 @@ pub fn rust_main() {
     trap::init();
     //trap::enable_timer_interrupt();
     //timer::set_next_trigger();
-    fat::ls_root_dir();
     task::add_initproc();
     task::run_tasks();
     sbi::shutdown(false);
