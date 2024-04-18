@@ -157,23 +157,33 @@ impl PageTable {
 }
 /// Translate a pointer to a mutable u8 Vec through page table
 pub fn translated_byte_buffer(token: usize, ptr: *const u8, len: usize) -> Vec<&'static mut [u8]> {
-    let page_table = PageTable::from_token(token);
-    let mut start = ptr as usize;
-    let end = start + len;
+    //这里注意PageTable::from的实现,他是根据一个satp的值构造一个PageTable结构而已
+    let page_table_struct = PageTable::from_token(token);
+    let mut data_start_virt_ad_begin = ptr as usize;
+    let mut data_start_virt_ad_end = data_start_virt_ad_begin + len;
     let mut v = Vec::new();
-    while start < end {
-        let start_va = VirtAddr::from(start);
-        let mut vpn = start_va.floor();
-        let ppn = page_table.translate(vpn).unwrap().ppn();
-        vpn.step();
-        let mut end_va: VirtAddr = vpn.into();
-        end_va = end_va.min(VirtAddr::from(end));
-        if end_va.page_offset() == 0 {
-            v.push(&mut ppn.get_bytes_array()[start_va.page_offset()..]);
-        } else {
-            v.push(&mut ppn.get_bytes_array()[start_va.page_offset()..end_va.page_offset()]);
-        }
-        start = end_va.into();
+
+    while data_start_virt_ad_begin < data_start_virt_ad_end {
+        /*
+        简单介绍一些这里做了什么
+        首先把两个usize
+        data_start_virt_ad_begin
+        data_start_virt_ad_end
+        转换成VirtAddr方便我们调用它的方法
+        然后得到数据开始地方所在的vpn页
+        translate vpn也变成物理页
+        将vpn+1得到下一页的开始VirtAddr
+        比较数据结束处和下一页开始的VirtAddr,取他们之间比较小的
+        调用VirtAddr的page_offset,就是页内偏移量,然后开始读,读的数据都放到v里
+        */
+        let virt_ad_start = VirtAddr::from(data_start_virt_ad_begin);
+        let mut vpn_of_start = virt_ad_start.floor();
+        let ppn = page_table_struct.translate(vpn_of_start).unwrap().ppn();
+        vpn_of_start.step();
+        let mut end_virt_ad: VirtAddr = vpn_of_start.into();
+        end_virt_ad = end_virt_ad.min(VirtAddr::from(data_start_virt_ad_end));
+        v.push(&mut ppn.get_bytes_array()[virt_ad_start.page_offset()..end_virt_ad.page_offset()]);
+        data_start_virt_ad_begin = end_virt_ad.0;
     }
     v
 }

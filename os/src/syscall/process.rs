@@ -1,3 +1,4 @@
+use crate::fat;
 use crate::mm::{translated_refmut, translated_str};
 use crate::task::{
     add_task, current_task, current_user_token, exit_current_and_run_next,
@@ -5,9 +6,7 @@ use crate::task::{
 };
 use crate::timer::get_time_ms;
 use alloc::sync::Arc;
-
 pub fn sys_exit(exit_code: i32) -> ! {
-    info!("Sys_exit");
     exit_current_and_run_next(exit_code);
     panic!("Unreachable in sys_exit!");
 }
@@ -40,42 +39,54 @@ pub fn sys_fork() -> isize {
 }
 
 pub fn sys_exec(path: *const u8) -> isize {
-    -1
+    let token = current_user_token();
+    let path = translated_str(token, path);
+    if let Some(file) = unsafe { fat::ROOT_INODE.find_vfile_name(path.as_str()) } {
+        let task = current_task().unwrap();
+        task.exec(unsafe { file.read_as_elf() });
+        0
+    } else {
+        -1
+    }
 }
 
-/// If there is not a child process whose pid is same as given, return -1.
-/// Else if there is a child process but it is still running, return -2.
+//传入值的pid如果是-1则代表清理任意进程
+//如果不是-1,则代表等待制定的进程退出
+
+//返回值-1代表进程不存在,-2表示进程还在运行不能返回
 pub fn sys_waitpid(pid: isize, exit_code_ptr: *mut i32) -> isize {
     let task = current_task().unwrap();
-    // find a child process
-
-    // ---- access current TCB exclusively
     let mut inner = task.inner_exclusive_access();
+
+    //解释一下下面的这个段
+    //当pid不等于1
+    //而且找不到制定要wait的进程,就会return -1告诉user你指定的进程不存在
     if !inner
         .children
         .iter()
         .any(|p| pid == -1 || pid as usize == p.getpid())
     {
         return -1;
-        // ---- release current PCB
     }
+
+    //现在是已经确定pid==1或者找到了对应的进程
+    //将child全都遍历一边,找到
+    //是僵尸进程 而且 pid和指定的值一样的进程
     let pair = inner.children.iter().enumerate().find(|(_, p)| {
-        // ++++ temporarily access child PCB lock exclusively
         p.inner_exclusive_access().is_zombie() && (pid == -1 || pid as usize == p.getpid())
-        // ++++ release child PCB
     });
+
     if let Some((idx, _)) = pair {
+        //先得到要清理的子进程的TCB
         let child = inner.children.remove(idx);
-        // confirm that child will be deallocated after removing from children list
         assert_eq!(Arc::strong_count(&child), 1);
         let found_pid = child.getpid();
-        // ++++ temporarily access child TCB exclusively
         let exit_code = child.inner_exclusive_access().exit_code;
-        // ++++ release child PCB
+        //将exit_code保存到对应的地址
         *translated_refmut(inner.memory_set.token(), exit_code_ptr) = exit_code;
         found_pid as isize
     } else {
+        //进程还在运行不能退出
         -2
     }
-    // ---- release current PCB lock automatically
 }

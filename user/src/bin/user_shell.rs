@@ -20,7 +20,7 @@ use user_lib::{exec, fork, waitpid};
 pub fn main() -> i32 {
     println!("Rust user shell");
     let mut line: String = String::new();
-    print!(">> ");
+    println!(">> ");
     loop {
         let c = getchar();
         match c {

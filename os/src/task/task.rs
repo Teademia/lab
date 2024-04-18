@@ -1,7 +1,7 @@
 //!Implementation of [`TaskControlBlock`]
 use super::TaskContext;
 use super::{pid_alloc, KernelStack, PidHandle};
-use crate::config::TRAP_CONTEXT;
+use crate::config::{PAGE_SIZE, TRAP_CONTEXT};
 use crate::mm::{MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE};
 use crate::sync::UPSafeCell;
 use crate::trap::{trap_handler, TrapContext};
@@ -19,6 +19,7 @@ pub struct TaskControlBlock {
 
 pub struct TaskControlBlockInner {
     pub trap_cx_ppn: PhysPageNum,
+    //base_size是user_stack的虚拟地址
     pub base_size: usize,
     pub task_cx: TaskContext,
     pub task_status: TaskStatus,
@@ -55,10 +56,6 @@ impl TaskControlBlock {
     pub fn new(elf_data: &[u8]) -> Self {
         // memory_set with elf program headers/trampoline/trap context/user stack
         let (memory_set, user_sp, entry_point) = MemorySet::from_elf(elf_data);
-        info!(
-            "Get user_sp at {:x} entry point at {:x}",
-            user_sp, entry_point
-        );
         let trap_cx_ppn = memory_set
             .translate(VirtAddr::from(TRAP_CONTEXT).into())
             .unwrap()
@@ -88,7 +85,7 @@ impl TaskControlBlock {
         let trap_cx = task_control_block.inner_exclusive_access().get_trap_cx();
         *trap_cx = TrapContext::app_init_context(
             entry_point,
-            user_sp,
+            user_sp - PAGE_SIZE,
             KERNEL_SPACE.exclusive_access().token(),
             kernel_stack_top,
             trap_handler as usize,
@@ -115,7 +112,7 @@ impl TaskControlBlock {
         let trap_cx = inner.get_trap_cx();
         *trap_cx = TrapContext::app_init_context(
             entry_point,
-            user_sp,
+            user_sp - PAGE_SIZE,
             KERNEL_SPACE.exclusive_access().token(),
             self.kernel_stack.get_top(),
             trap_handler as usize,
@@ -123,20 +120,19 @@ impl TaskControlBlock {
         // **** release inner automatically
     }
     pub fn fork(self: &Arc<Self>) -> Arc<Self> {
-        // ---- access parent PCB exclusively
+        /* 注意这里我们要返回一个和调用者完全一样的TCB,除了pid */
         let mut parent_inner = self.inner_exclusive_access();
-        // copy user space(include trap context)
+        /* 得到父进程的TCB,准备构造一个一模一样的 */
+        let pid = pid_alloc();
+        let kernel_stack = KernelStack::new(&pid);
+        let kernel_stack_top = kernel_stack.get_top();
         let memory_set = MemorySet::from_existed_user(&parent_inner.memory_set);
         let trap_cx_ppn = memory_set
             .translate(VirtAddr::from(TRAP_CONTEXT).into())
             .unwrap()
             .ppn();
-        // alloc a pid and a kernel stack in kernel space
-        let pid_handle = pid_alloc();
-        let kernel_stack = KernelStack::new(&pid_handle);
-        let kernel_stack_top = kernel_stack.get_top();
         let task_control_block = Arc::new(TaskControlBlock {
-            pid: pid_handle,
+            pid: pid,
             kernel_stack,
             inner: unsafe {
                 UPSafeCell::new(TaskControlBlockInner {
@@ -151,16 +147,10 @@ impl TaskControlBlock {
                 })
             },
         });
-        // add child
         parent_inner.children.push(task_control_block.clone());
-        // modify kernel_sp in trap_cx
-        // **** access children PCB exclusively
         let trap_cx = task_control_block.inner_exclusive_access().get_trap_cx();
         trap_cx.kernel_sp = kernel_stack_top;
-        // return
         task_control_block
-        // ---- release parent PCB automatically
-        // **** release children PCB automatically
     }
     pub fn getpid(&self) -> usize {
         self.pid.0

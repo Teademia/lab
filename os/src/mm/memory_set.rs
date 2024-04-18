@@ -197,7 +197,6 @@ impl MemorySet {
                 if ph_flags.is_execute() {
                     map_perm |= MapPermission::X;
                 }
-                info!("MapArea build from {:x} to {:x}", start_va.0, end_va.0);
                 let map_area = MapArea::new(start_va, end_va, MapType::Framed, map_perm);
                 max_end_vpn = map_area.vpn_range.get_end();
                 memory_set.push(
@@ -207,20 +206,15 @@ impl MemorySet {
             }
         }
         // map user stack with U flags
-        info!("Max_end_vpn at {:x}", max_end_vpn.0);
         let max_end_va: VirtAddr = max_end_vpn.into();
         let mut user_stack_bottom: usize = max_end_va.into();
         // guard page
         user_stack_bottom += PAGE_SIZE;
         let user_stack_top = user_stack_bottom + USER_STACK_SIZE;
-        info!(
-            "UserStack at {:x} to {:x}",
-            user_stack_bottom, user_stack_top
-        );
         memory_set.push(
             MapArea::new(
                 user_stack_bottom.into(),
-                user_stack_top.into(),
+                (user_stack_top).into(),
                 MapType::Framed,
                 MapPermission::R | MapPermission::W | MapPermission::U,
             ),
@@ -238,7 +232,7 @@ impl MemorySet {
         );
         (
             memory_set,
-            user_stack_top - 1,
+            user_stack_top,
             elf.header.pt2.entry_point() as usize,
         )
     }

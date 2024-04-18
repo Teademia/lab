@@ -25,11 +25,16 @@ clean:
 	@cd os && rm target -rf
 	@cd user && rm target -rf
 	@cd fat32_fs && rm target -rf
+	@cd 
 	@rm user_apps/* -rf
-
+	@rm riscv-syscalls-testing/user/build -rf
 
 server:
 	@cd os && make server
 
 client:
 	@cd os && make client
+
+test_case:
+	@rm riscv-syscalls-testing/user/build -rf
+	@cd riscv-syscalls-testing/user && bash build-oscomp.sh && cp build/riscv64/* ../../user_apps
